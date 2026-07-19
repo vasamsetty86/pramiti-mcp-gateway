@@ -186,11 +186,36 @@ way — so results are safe to diff in CI.
   blocking, no production risk. ✅ _shipped_
 - **Verify** (`verify`) — check the signed record chain offline. ✅ _shipped_
 
-Seeing the risk is free. **Stopping** it — deterministic allow/deny/rewrite
-policy on agent actions, cryptographic attestation of every decision, and
-compliance evidence — is [Praxom](https://getpramiti.com), the commercial
-control plane this scanner is carved from.
+## Seeing vs. stopping — Praxom
+
+This gateway lets you **see** what your agents can do and **prove** what they
+did. It is deliberately passive: it never blocks a call, so there is zero
+production risk in running it. That is the free half of the problem.
+
+The other half is **stopping** the wrong action before it executes — and doing
+it deterministically, even when the model is prompt-injected. That is
+[**Praxom**](https://getpramiti.com), the commercial control plane this scanner
+is carved from. Same doctrine (assume breach; enforce outside the model), one
+step further.
+
+| | This gateway (free, OSS) | Praxom (commercial) |
+|---|---|---|
+| **Scan** tool risk (offline + live) | ✅ | ✅ |
+| **Passive** log + Ed25519-sign every call | ✅ | ✅ |
+| **Verify** the record chain offline | ✅ | ✅ |
+| **Block / rewrite / escalate** an action before it runs | — | ✅ |
+| Policy engine (business rules, per tool, per agent) | — | ✅ |
+| The **injection backstop** — decisions key off the tool's real risk, not the agent's claims | — | ✅ |
+| Hash-chained attestation with WORM anchoring | — | ✅ |
+| Compliance evidence (EU AI Act, DORA, SOC 2) | — | ✅ |
+
+The gateway is the front door: run it, see your agent action surface, and when
+you need to *enforce* it, Praxom picks up where this leaves off.
+
+**→ [getpramiti.com](https://getpramiti.com)** · book a walkthrough or see the
+injection-backstop demo.
 
 ## License
 
 MIT © Pramiti Labs
+
