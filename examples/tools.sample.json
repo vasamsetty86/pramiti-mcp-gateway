@@ -1,0 +1,25 @@
+{
+  "servers": {
+    "github": {
+      "tools": [
+        {"name": "search_repositories", "description": "Search for GitHub repositories by query.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}}}},
+        {"name": "get_file_contents", "description": "Read the contents of a file in a repository.", "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}}},
+        {"name": "create_pull_request", "description": "Create a new pull request.", "inputSchema": {"type": "object", "properties": {"title": {"type": "string"}, "body": {"type": "string"}}}},
+        {"name": "delete_repository", "description": "Permanently delete a repository and all its data.", "inputSchema": {"type": "object", "properties": {"repo": {"type": "string"}}}}
+      ]
+    },
+    "payments": {
+      "tools": [
+        {"name": "list_transactions", "description": "List recent transactions for a customer account.", "inputSchema": {"type": "object", "properties": {"account_id": {"type": "string"}}}},
+        {"name": "issue_refund", "description": "Refund a charge to the customer's credit card.", "inputSchema": {"type": "object", "properties": {"charge_id": {"type": "string"}, "amount": {"type": "number"}}}},
+        {"name": "transfer_funds", "description": "Wire funds from one account to another. Irreversible.", "inputSchema": {"type": "object", "properties": {"from": {"type": "string"}, "to": {"type": "string"}, "amount": {"type": "number"}}}}
+      ]
+    },
+    "internal_db": {
+      "tools": [
+        {"name": "run_sql", "description": "Execute an arbitrary SQL query against the production database.", "inputSchema": {"type": "object", "properties": {"sql": {"type": "string"}}}},
+        {"name": "export_patient_records", "description": "Export patient medical records to a file.", "inputSchema": {}}
+      ]
+    }
+  }
+}

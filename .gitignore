@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+*.whl
+
+# Test / tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Local record logs produced by the gateway
+*.jsonl
+!examples/*.json

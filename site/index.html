@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pramiti MCP Gateway — see what your AI agents can do</title>
+<meta name="description" content="Open-source security posture scanner for Model Context Protocol (MCP) servers. Scan your MCP setup in two minutes." />
+<style>
+  :root{
+    --bg:#FDFBF7; --ink:#1c1a17; --muted:#6b655c; --line:#e7e1d6;
+    --emerald:#1f8a5b; --copper:#c0603a; --crit:#c0392b;
+    --term-bg:#14161a; --term-ink:#e6e6e6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;}
+  .wrap{max-width:860px;margin:0 auto;padding:0 24px}
+  header{padding:64px 0 24px}
+  .kicker{color:var(--emerald);font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-size:13px}
+  h1{font-size:44px;line-height:1.1;margin:12px 0 8px;letter-spacing:-.02em}
+  .sub{font-size:20px;color:var(--muted);margin:0 0 28px;max-width:640px}
+  .cta{display:inline-block;background:var(--emerald);color:#fff;text-decoration:none;
+    padding:12px 20px;border-radius:8px;font-weight:600;margin-right:12px}
+  .cta.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+  code.cmd{display:block;background:var(--term-bg);color:var(--term-ink);
+    padding:16px 18px;border-radius:10px;font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
+    margin:28px 0;overflow:auto}
+  code.cmd .p{color:#7ee0a8}
+  .term{background:var(--term-bg);color:var(--term-ink);border-radius:12px;
+    padding:20px 22px;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
+    white-space:pre;overflow:auto;margin:8px 0 36px}
+  .term .crit{color:#ff6b5e;font-weight:700}
+  .term .high{color:#ffa24d;font-weight:700}
+  .term .info{color:#7ee0a8}
+  .term .dim{color:#8b93a1}
+  section{padding:24px 0;border-top:1px solid var(--line)}
+  h2{font-size:26px;letter-spacing:-.01em;margin:0 0 10px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  .card{border:1px solid var(--line);border-radius:12px;padding:18px}
+  .card h3{margin:0 0 6px;font-size:17px}
+  .card p{margin:0;color:var(--muted);font-size:15px}
+  .free{color:var(--emerald);font-weight:700}
+  .paid{color:var(--copper);font-weight:700}
+  footer{color:var(--muted);font-size:14px;padding:40px 0 60px;border-top:1px solid var(--line)}
+  a{color:var(--emerald)}
+  @media(max-width:640px){h1{font-size:34px}.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="kicker">Pramiti MCP Gateway · open source</div>
+    <h1>See what your AI agents can actually <em>do</em>.</h1>
+    <p class="sub">MCP gives agents hands. This tells you what those hands can reach —
+      which tools let an agent delete data, move money, or exfiltrate PHI —
+      in two minutes, with zero infrastructure.</p>
+    <a class="cta" href="https://github.com/vasamsetty86/pramiti-mcp-gateway">Get it on GitHub</a>
+    <a class="cta ghost" href="https://getpramiti.com">Stop the risky ones →</a>
+  </header>
+
+  <code class="cmd"><span class="p">$</span> uvx pramiti-mcp-gateway scan --config ~/.config/claude/claude_desktop_config.json</code>
+
+  <div class="term"><span class="dim">MCP Security Posture</span>
+============================================================
+9 tools scanned  |  read 3  write 6  unknown 0
+severity:  <span class="crit">critical 4</span>  <span class="high">high 1</span>  medium 1  low 1  info 2
+------------------------------------------------------------
+<span class="crit">[CRIT]</span> internal_db.export_patient_records
+        touches sensitive data; grants unconstrained capability
+<span class="crit">[CRIT]</span> internal_db.run_sql   (arbitrary SQL on production)
+<span class="crit">[CRIT]</span> payments.transfer_funds   (irreversible, financial)
+<span class="high">[HIGH]</span> github.delete_repository
+<span class="info">[INFO]</span> github.search_repositories
+------------------------------------------------------------
+Top risk: CRITICAL. Gate these before giving an agent write access.</div>
+
+  <section>
+    <h2>Why it exists</h2>
+    <p>A single MCP server can put a <code>delete_repository</code>, a
+      <code>transfer_funds</code>, and a harmless <code>search</code> in the same
+      agent's reach. If the agent is prompt-injected, it will be talked into
+      calling the wrong one. Prompt-level defenses don't help here — the danger
+      isn't what the agent <em>says</em>, it's what it can <em>do</em>. Before you
+      can gate agent actions, you have to see them. This is the "see them" step,
+      and it's free.</p>
+  </section>
+
+  <section>
+    <h2>What you get</h2>
+    <div class="grid">
+      <div class="card"><h3>Scan (offline)</h3><p>Classify any MCP server's tools by
+        access, reversibility, sensitive-data exposure, and arbitrary power. Zero
+        dependencies. CI-gateable.</p></div>
+      <div class="card"><h3>Scan (live)</h3><p>Connect to your configured servers,
+        enumerate their real tools, and scan them — stdio and remote.</p></div>
+      <div class="card"><h3>Passive gateway</h3><p>Sit between an agent and its
+        servers. Log and Ed25519-sign every tool call. Never blocks — zero
+        production risk.</p></div>
+      <div class="card"><h3>Verify</h3><p>A tamper-evident, hash-chained record of
+        what your agents actually did — verifiable offline by anyone.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Open core</h2>
+    <p><span class="free">Free & open source:</span> seeing the risk — scan, live
+      connect, passive logging, signed records, offline verify.</p>
+    <p><span class="paid">Praxom (commercial):</span> <em>stopping</em> it —
+      deterministic allow / deny / rewrite policy on agent actions, an attestation
+      chain with WORM anchoring, and regulator-grade compliance evidence. The
+      gateway is carved from Praxom; the same doctrine, one step further.</p>
+    <p><a href="https://getpramiti.com">Learn about Praxom →</a></p>
+  </section>
+
+  <footer>
+    MIT © Pramiti Labs · <a href="https://github.com/vasamsetty86/pramiti-mcp-gateway">GitHub</a>
+    · <a href="https://getpramiti.com">getpramiti.com</a>
+  </footer>
+
+</div>
+</body>
+</html>
