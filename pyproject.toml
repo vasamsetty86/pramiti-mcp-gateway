@@ -1,9 +1,10 @@
 [project]
 name = "pramiti-mcp-gateway"
-version = "0.1.0"
+dynamic = ["version"]
+authors = [{name = "Pramiti Labs, Inc.", email = "hello@getpramiti.com"}]
 description = "Security posture scanner and passive gateway for Model Context Protocol (MCP) servers — see what your AI agents can actually do."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11,<3.14"
 # v1 scan is pure stdlib — zero install dependencies, so `pipx run` / `uvx`
 # work with no environment. The live-connect and passive-proxy modes (later
 # increments) add an optional `mcp` extra rather than a hard dependency.
@@ -12,25 +13,27 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: System Administrators",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Security",
     "Topic :: Software Development :: Libraries",
 ]
 keywords = ["mcp", "model-context-protocol", "ai-agents", "security", "gateway", "posture", "pramiti", "praxom"]
-license = {text = "MIT"}
+license = "MIT"
 
 [project.optional-dependencies]
 # Live-connect scan + passive proxy talk the MCP wire protocol.
-connect = ["mcp>=1.0.0"]
+#
+# `<2` is load-bearing: mcp 2.0.0 removed the `Server.list_tools()` /
+# `Server.call_tool()` decorators that proxy.py registers handlers with, so an
+# unbounded pin made `pramiti-mcp-gateway[gateway]` unusable on a fresh install.
+# 0.1.0 shipped with that bug. Do not widen without porting proxy.py to 2.x.
+connect = ["mcp>=1.0.0,<2"]
 # Ed25519 signing of gateway records (non-repudiation). The hash chain works
 # without this; signing adds proof of who recorded a call.
 sign = ["cryptography>=42.0"]
 # Everything needed to run the passive gateway with signed records.
-gateway = ["mcp>=1.0.0", "cryptography>=42.0"]
+gateway = ["mcp>=1.0.0,<2", "cryptography>=42.0"]
 
 [project.scripts]
 pramiti-mcp-gateway = "pramiti_mcp_gateway.cli:main"
@@ -45,3 +48,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = {attr = "pramiti_mcp_gateway.__version__"}

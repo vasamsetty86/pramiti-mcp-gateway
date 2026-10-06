@@ -97,13 +97,21 @@ def load_signer(key_path: Optional[str] = None) -> tuple[Optional[Signer], str]:
 
 
 def write_keypair(path: Optional[str] = None) -> tuple[str, str]:
-    """Generate and persist a new signing key. Returns (path, public_hex)."""
+    """Generate and persist a new signing key. Returns (path, public_hex).
+
+    The key file is CREATED with owner-only permissions (A-RD-014): the 0600
+    mode is passed to ``os.open`` at creation, not chmod'd after the write, so
+    there is no umask-dependent window in which the private key sits
+    world-readable on disk. The explicit chmod afterwards normalizes the mode
+    for pre-existing files (``O_CREAT`` ignores its mode argument then) — and
+    a chmod failure propagates rather than being swallowed: a key whose
+    permissions cannot be restricted is an error, not a warning.
+    """
     signer = Signer.generate()
     dest = Path(path) if path else DEFAULT_KEY_PATH
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(signer.private_hex())
-    try:
-        dest.chmod(0o600)
-    except OSError:  # pragma: no cover - platform dependent
-        pass
+    fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(signer.private_hex())
+    dest.chmod(0o600)
     return str(dest), signer.public_hex

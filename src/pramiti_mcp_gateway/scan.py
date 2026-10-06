@@ -25,6 +25,11 @@ class PostureReport:
     """The result of scanning one or more MCP servers' tool sets."""
 
     tools: list[ToolRisk] = field(default_factory=list)
+    # server name -> why its tools could not be read. A scanner must never report
+    # a clean posture for something it could not see, and it must not throw away
+    # the servers it COULD read because one entry was odd. Additive: existing
+    # consumers that ignore this field behave exactly as before.
+    unreadable: dict = field(default_factory=dict)
 
     @property
     def counts(self) -> dict[str, int]:
@@ -52,12 +57,18 @@ class PostureReport:
                 "by_severity": self.counts,
                 "by_access": self.access_counts,
                 "max_severity": self.max_severity(),
+                "unreadable_servers": len(self.unreadable),
             },
             "tools": [t.to_dict() for t in self.tools],
+            "unreadable": dict(self.unreadable),
         }
 
 
-def _iter_server_tools(manifest) -> Iterable[tuple[str, list]]:
+# Sentinel server name marking an entry whose shape we could not interpret.
+_UNREADABLE = object()
+
+
+def _iter_server_tools(manifest) -> Iterable[tuple]:
     """Yield (server_name, tools_list) pairs from any accepted manifest shape."""
     if isinstance(manifest, list):
         yield "", manifest
@@ -69,8 +80,32 @@ def _iter_server_tools(manifest) -> Iterable[tuple[str, list]]:
         )
     if "servers" in manifest and isinstance(manifest["servers"], dict):
         for server_name, entry in manifest["servers"].items():
-            tools = entry.get("tools", []) if isinstance(entry, dict) else []
-            yield str(server_name), list(tools)
+            # A scanner must never silently report a clean posture. This used to
+            # be `entry.get("tools", []) if isinstance(entry, dict) else []`, so
+            # `{"servers": {"db": [run_shell, delete_account]}}` — the shape the
+            # error message below actively invites — yielded ZERO tools and the
+            # report read "0 tools, ~0% chance of exposing destructive or
+            # arbitrary-exec access, status ok", exit 0. The same tools in the
+            # accepted spelling score 0.91 and exit 2.
+            if isinstance(entry, list):
+                yield str(server_name), list(entry)
+            elif isinstance(entry, dict) and isinstance(entry.get("tools"), list):
+                yield str(server_name), list(entry["tools"])
+            elif isinstance(entry, dict) and not entry:
+                yield str(server_name), []
+            else:
+                # Reported as unreadable rather than raised: one odd entry must
+                # not throw away the posture for every server beside it.
+                yield _UNREADABLE, (
+                    str(server_name),
+                    f"expected a list of tools or an object with a 'tools' list, "
+                    f"got {type(entry).__name__}"
+                    + (
+                        f" with keys {sorted(entry)[:5]}"
+                        if isinstance(entry, dict)
+                        else ""
+                    ),
+                )
         return
     if "tools" in manifest and isinstance(manifest["tools"], list):
         yield str(manifest.get("server", "")), list(manifest["tools"])
@@ -94,11 +129,25 @@ def scan_manifest(manifest) -> PostureReport:
     """Classify every tool in *manifest* and return a PostureReport."""
     report = PostureReport()
     for server_name, tools in _iter_server_tools(manifest):
-        for tool in tools:
+        if server_name is _UNREADABLE:
+            name, why = tools
+            report.unreadable[name] = why
+            continue
+        for index, tool in enumerate(tools):
+            # A tool we cannot read is not a tool that is safe. These used to be
+            # dropped silently, so a server listing tools as bare strings scanned
+            # as clean. Recording them keeps the exit gate honest and keeps the
+            # two scanners agreeing on identical bytes.
             if not isinstance(tool, dict):
+                report.unreadable[f"{server_name or '(unnamed)'}[{index}]"] = (
+                    f"tool entry is {type(tool).__name__}, not an object"
+                )
                 continue
             name = tool.get("name") or ""
             if not name:
+                report.unreadable[f"{server_name or '(unnamed)'}[{index}]"] = (
+                    "tool entry has no 'name'"
+                )
                 continue
             report.tools.append(
                 classify_tool(
@@ -143,6 +192,13 @@ def render_text(report: PostureReport, *, color: bool = False) -> str:
         f"severity:  critical {c['critical']}  high {c['high']}  "
         f"medium {c['medium']}  low {c['low']}  info {c['info']}"
     )
+    if report.unreadable:
+        lines.append(
+            f"UNREADABLE: {len(report.unreadable)} server(s) could not be read, so "
+            f"their tools are NOT in this posture:"
+        )
+        for name, why in sorted(report.unreadable.items()):
+            lines.append(f"  {name}: {why}")
     lines.append("-" * 60)
     for t in report.tools:
         badge = _SEVERITY_BADGE.get(t.severity, t.severity.upper())
@@ -157,6 +213,15 @@ def render_text(report: PostureReport, *, color: bool = False) -> str:
         lines.append(
             f"Top risk: {worst.upper()}. These tools let an agent take "
             "high-impact actions. Gate them before giving an agent write access."
+        )
+    elif not report.tools and report.unreadable:
+        # "No high-severity action tools detected" beside an exit code of 1 is a
+        # contradiction, and the reassuring half is the one people read. Nothing
+        # was detected because nothing was inspected.
+        lines.append(
+            f"NO POSTURE: nothing was inspected — {len(report.unreadable)} "
+            f"server(s) could not be read or reached (listed above). This is not "
+            f"a finding of safety; it is a failure to look."
         )
     else:
         lines.append("No high-severity action tools detected in this set.")

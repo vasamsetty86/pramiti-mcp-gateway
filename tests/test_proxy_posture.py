@@ -105,6 +105,51 @@ def test_relay_records_error_then_reraises(tmp_path):
     assert recs[0]["outcome"] == "error"
 
 
+# --- unit: the agent-facing reply is the downstream result UNCHANGED --------
+# A-RD-012: returning only result.content let the SDK re-wrap a downstream
+# ERROR as a non-error reply (and dropped structuredContent). The relay's
+# transparency claim is "returns the real result unchanged" — pin it.
+
+def test_faithful_result_preserves_downstream_error_flag():
+    pytest.importorskip("mcp")
+    from mcp import types
+    from pramiti_mcp_gateway.proxy import _faithful_result
+
+    downstream = _Result(
+        content=[types.TextContent(type="text", text="tool exploded")],
+        isError=True,
+    )
+    reply = _faithful_result(downstream)
+    assert isinstance(reply, types.CallToolResult)
+    assert reply.isError is True, "downstream error re-presented as success"
+    assert reply.content[0].text == "tool exploded"
+
+
+def test_faithful_result_preserves_structured_content():
+    pytest.importorskip("mcp")
+    from mcp import types
+    from pramiti_mcp_gateway.proxy import _faithful_result
+
+    downstream = _Result(content=[types.TextContent(type="text", text="ok")])
+    downstream.structuredContent = {"rows": [1, 2, 3]}
+    reply = _faithful_result(downstream)
+    assert reply.isError is False
+    assert reply.structuredContent == {"rows": [1, 2, 3]}
+
+
+def test_faithful_result_passes_real_calltoolresult_through_unchanged():
+    pytest.importorskip("mcp")
+    from mcp import types
+    from pramiti_mcp_gateway.proxy import _faithful_result
+
+    real = types.CallToolResult(
+        content=[types.TextContent(type="text", text="boom")],
+        structuredContent={"code": 42},
+        isError=True,
+    )
+    assert _faithful_result(real) is real
+
+
 # --- integration: relay against a REAL downstream MCP server ---------------
 
 def test_relay_against_real_stdio_server(tmp_path):

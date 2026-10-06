@@ -139,10 +139,11 @@ pramiti-mcp-gateway verify  github.jsonl    # is the evidence intact & signed?
 ```
 
 `posture` reports risk over time — calls by severity, by server, and the
-most-called risky tools. `verify` recomputes the hash chain and checks every
-Ed25519 signature offline, so anyone can confirm the log wasn't altered. Raw
-tool arguments are never stored — only their `sha256` — so the evidence log
-never becomes a place secrets leak to.
+most-called risky tools. `verify` recomputes the hash chain, checks every
+Ed25519 signature offline, and cross-checks a `chain_tips.json` witness written
+on every append so records deleted from the end of the log are reported as
+`truncated`. Raw tool arguments are never stored — only their `sha256` — so the
+evidence log never becomes a place secrets leak to.
 
 **See it in action:** `python examples/demo.py` runs a compromised agent trying
 to exfiltrate PHI through a real MCP server, and shows the gateway catching and

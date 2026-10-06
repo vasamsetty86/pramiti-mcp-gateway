@@ -82,6 +82,26 @@ class PassiveRelay:
         return result
 
 
+def _faithful_result(result):
+    """Project a downstream result onto the agent-facing reply UNCHANGED.
+
+    A-RD-012: returning only ``result.content`` let the MCP SDK re-wrap the
+    blocks as a non-error result, so a downstream error was re-presented to
+    the agent as success (and any ``structuredContent`` was dropped) — despite
+    the module's "returns the real result unchanged" claim. The relay must
+    carry ``isError`` and ``structuredContent`` through faithfully.
+    """
+    from mcp import types
+
+    if isinstance(result, types.CallToolResult):
+        return result
+    return types.CallToolResult(
+        content=list(getattr(result, "content", []) or []),
+        structuredContent=getattr(result, "structuredContent", None),
+        isError=bool(getattr(result, "isError", False)),
+    )
+
+
 async def run_proxy(server_spec: dict, server_name: str, store: RecordStore) -> None:
     """Run the passive stdio gateway in front of one downstream server.
 
@@ -109,8 +129,9 @@ async def run_proxy(server_spec: dict, server_name: str, store: RecordStore) -> 
             @server.call_tool()
             async def _call_tool(name: str, arguments: dict):
                 result = await relay.handle_call(name, arguments)
-                # Return the content blocks; the SDK re-wraps them for the agent.
-                return list(getattr(result, "content", []) or [])
+                # Return the FULL CallToolResult so isError/structuredContent
+                # survive the relay (A-RD-012) — the SDK passes it through as-is.
+                return _faithful_result(result)
 
             async with stdio_server() as (agent_read, agent_write):
                 await server.run(

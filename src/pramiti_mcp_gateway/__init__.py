@@ -13,7 +13,7 @@ from __future__ import annotations
 from pramiti_mcp_gateway.classifier import ToolRisk, classify_tool
 from pramiti_mcp_gateway.scan import PostureReport, render_text, scan_manifest
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "ToolRisk",

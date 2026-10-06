@@ -35,6 +35,7 @@ def _cmd_scan(args) -> int:
             file=sys.stderr,
         )
         return 1
+    unreachable: dict = {}
     if args.config:
         from pramiti_mcp_gateway.connect import discover, load_config
 
@@ -53,6 +54,14 @@ def _cmd_scan(args) -> int:
                 f"warning: server '{name}' could not be scanned: {err}",
                 file=sys.stderr,
             )
+        # These must reach the exit gate below. A server we could not CONNECT to
+        # is a server we did not inspect, exactly like one whose manifest entry
+        # we could not read — and this is the path the error text for an
+        # mcpServers config actively tells users to run. Left out of the gate,
+        # `scan --config` with zero servers reachable printed "No high-severity
+        # action tools detected" and exited 0: a clean bill of health for a stack
+        # never reached.
+        unreachable = dict(errors)
     else:
         try:
             manifest = _load(args.manifest)
@@ -65,6 +74,9 @@ def _cmd_scan(args) -> int:
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+
+    for name, why in unreachable.items():
+        report.unreadable.setdefault(name, f"could not connect: {why}")
 
     if args.json:
         print(json.dumps(report.to_dict(), indent=2))
@@ -81,6 +93,21 @@ def _cmd_scan(args) -> int:
                 file=sys.stderr,
             )
             return 2
+
+    # Exit 0 requires that something was actually inspected. "I looked and found
+    # nothing" and "I could not look" are different answers and must not share an
+    # exit code: a manifest whose servers could none of them be read otherwise
+    # produced an empty, reassuring report and exit 0 — a clean bill of health
+    # for a stack this scanner never saw. An EMPTY stack is still exit 0; only a
+    # failure to read is not.
+    if not report.tools and report.unreadable:
+        print(
+            f"\nNO POSTURE: {len(report.unreadable)} server(s) could not be read "
+            f"and no tool was inspected, so this is not a finding of safety — it "
+            f"is a failure to look.",
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 
@@ -100,7 +127,7 @@ def _cmd_proxy(args) -> int:
     import asyncio
 
     from pramiti_mcp_gateway import signing
-    from pramiti_mcp_gateway.records import RecordStore
+    from pramiti_mcp_gateway.records import RecordStore, TamperedChainError
 
     if args.url:
         spec = {"url": args.url}
@@ -134,7 +161,13 @@ def _cmd_proxy(args) -> int:
                 file=sys.stderr,
             )
 
-    store = RecordStore(args.records, signer=signer)
+    try:
+        store = RecordStore(args.records, signer=signer)
+    except TamperedChainError as exc:
+        # RR-289: never grow a chain that does not verify. The operator must
+        # quarantine the file explicitly; there is no append-anyway override.
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     print(
         f"pramiti-mcp-gateway: passive proxy for '{args.server_name}' -> "
         f"records: {args.records} ({'signed' if signer else 'unsigned'})",
@@ -173,8 +206,26 @@ def _cmd_posture(args) -> int:
     return 0
 
 
+def _add_advisory(result, kind: str, detail: str) -> None:
+    """Attach a non-fatal note. Advisories qualify an OK; they do not deny it."""
+    notes = getattr(result, "advisories", None)
+    if notes is None:
+        try:
+            result.advisories = []
+        except Exception:  # pragma: no cover - frozen result type
+            print("advisory dropped: result type is frozen", file=sys.stderr)
+            return
+        notes = result.advisories
+    notes.append({"kind": kind, "detail": detail})
+
+
 def _cmd_verify(args) -> int:
-    from pramiti_mcp_gateway.records import read_records
+    from pramiti_mcp_gateway.records import (
+        TIPS_FILENAME,
+        chain_tip_issues,
+        load_tips_beside,
+        read_records,
+    )
     from pramiti_mcp_gateway.verify import verify_records
 
     try:
@@ -182,7 +233,41 @@ def _cmd_verify(args) -> int:
     except (OSError, json.JSONDecodeError) as exc:
         print(f"error: could not read records: {exc}", file=sys.stderr)
         return 1
-    result = verify_records(records)
+    pinned = getattr(args, "pubkey", None)
+    if pinned:
+        candidate = Path(pinned).expanduser()
+        if candidate.exists():
+            pinned = candidate.read_text(encoding="utf-8").strip()
+
+    result = verify_records(records, expected_public_key=pinned)
+
+    # The witness is what makes tail-truncation detectable at all. Its ABSENCE
+    # is therefore a fact about how much this verification proves: deleting
+    # chain_tips.json restores the truncation bypass, and silence about that
+    # would print "OK — chain intact" over a check that did not run.
+    log_path = Path(args.records)
+    tips = load_tips_beside(log_path)
+    if tips is None:
+        _add_advisory(
+            result,
+            "no_witness",
+            f"no readable {TIPS_FILENAME} beside this log, so tail-truncation "
+            f"could not be checked — records removed from the end would not be "
+            f"detected here.",
+        )
+    elif log_path.name not in tips:
+        _add_advisory(
+            result,
+            "no_witness",
+            f"{TIPS_FILENAME} has no entry for {log_path.name}, so "
+            f"tail-truncation could not be checked for this log.",
+        )
+    else:
+        result.issues.extend(chain_tip_issues(records, tips.get(log_path.name)))
+
+    advisories = list(getattr(result, "advisories", []))
+    unpinned = not pinned and any(n["kind"] == "unpinned_key" for n in advisories)
+
     if args.json:
         print(json.dumps(result.to_dict(), indent=2))
     else:
@@ -190,9 +275,38 @@ def _cmd_verify(args) -> int:
         print(f"records: {r.total}   signed: {r.signed}   unsigned: {r.unsigned}")
         for issue in r.issues:
             print(f"  [{issue['kind']}] seq={issue['seq']}: {issue['detail']}")
-        print("OK — chain intact and every record verified." if r.ok
-              else "FAIL — see issues above.")
-    return 0 if result.ok else 1
+        # The text renderer used to DROP the advisories that `verify_records`
+        # already computes — `--json` carried them, the terminal did not — so a
+        # log signed with a key generated ten seconds earlier printed
+        # "OK — chain intact and every record verified." and exited 0. The README
+        # sells this command as "anyone can confirm the log wasn't altered", and
+        # a forged chain passed it. Same defect agentguard's verify had; it was
+        # fixed there and never here.
+        for note in advisories:
+            print(f"  note: [{note['kind']}] {note['detail']}")
+        if r.ok and unpinned:
+            print(
+                "OK (UNPINNED) — the chain is internally consistent, but the "
+                "signatures were checked against a key carried IN the log itself, "
+                "so this does NOT establish who produced it. A fabricated log "
+                "passes this check.\n"
+                "  Re-run with --pubkey <file|hex> to verify against a key you "
+                "chose to trust, or --allow-unpinned to accept this as success."
+            )
+        elif r.ok:
+            print("OK — chain intact and every record verified"
+                  + (" against the pinned key." if pinned else "."))
+        else:
+            print("FAIL — see issues above.")
+
+    if not result.ok:
+        return 1
+    if unpinned and not getattr(args, "allow_unpinned", False):
+        # 3 = verified what is present, but nothing pins it to a key you trust.
+        # Distinct from 1 so "tampered" and "provenance unknown" stay tellable
+        # apart, matching `agentguard verify`.
+        return 3
+    return 0
 
 
 def main(argv: Optional[list] = None) -> int:
@@ -271,6 +385,18 @@ def main(argv: Optional[list] = None) -> int:
     # verify ---------------------------------------------------------------
     p_ver = sub.add_parser("verify", help="Verify a record chain (hashes + signatures) offline.")
     p_ver.add_argument("records", help="Path to a gateway record JSONL file.")
+    p_ver.add_argument(
+        "--pubkey", metavar="HEX_OR_FILE", default=None,
+        help="Pin verification to this Ed25519 public key (hex, or a file "
+             "containing it). Without it, signatures are checked against the key "
+             "stored in each record — which proves the log is internally "
+             "consistent, not that it is YOUR log.",
+    )
+    p_ver.add_argument(
+        "--allow-unpinned", action="store_true",
+        help="Exit 0 on an unpinned pass. Without --pubkey a fabricated log "
+             "passes, so it is exit 3 by default.",
+    )
     p_ver.add_argument("--json", action="store_true", help="Emit the result as JSON.")
     p_ver.set_defaults(func=_cmd_verify)
 
